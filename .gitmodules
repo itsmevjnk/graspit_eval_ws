@@ -1,4 +1,4 @@
 [submodule "src/graspit_interface"]
 	path = src/graspit_interface
-	url = https://github.com/graspit-simulator/graspit_interface.git
-	branch = noetic-devel
+	url = https://github.com/itsmevjnk/graspit_interface.git
+	branch = dev/force-calc-quality

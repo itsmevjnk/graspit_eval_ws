@@ -139,6 +139,8 @@ def rotation_matrix_from_vectors(vec1, vec2):
     rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
     return rotation_matrix
 
+rospy.ServiceProxy('/graspit/setCheckCollision', SetCheckCollision)(False)
+
 clear_world = rospy.ServiceProxy('/graspit/clearWorld', ClearWorld)
 import_robot = rospy.ServiceProxy('/graspit/importRobot', ImportRobot)
 import_object = rospy.ServiceProxy('/graspit/importGraspableBody', ImportGraspableBody)
