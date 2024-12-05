@@ -11,10 +11,13 @@ import numpy as np
 import yaml
 import os
 import xml.etree.ElementTree as ET
+import glob
+from timeit import default_timer as timer
 
 from graspit_interface.srv import *
 from geometry_msgs.msg import Pose, Point, Quaternion
 
+rospy.init_node('scene_reconstructor')
 
 # mapping from subject number to dataset directory and MANO model name
 DEXYCB_SUBJECT_DIRS = {
@@ -53,15 +56,26 @@ URDF_JOINTS = {
 
 graspit_dof_bases = {'index': 0, 'mid': 4, 'pinky': 8, 'ring': 12, 'thumb': 16} # DOF index bases
 
-# TODO
-DEXYCB_PATH = os.environ.get('DEX_YCB_DIR')
-MANO_DIR = os.environ.get('MANO_MODELS_PATH')
+# load params from ROS
+PKG_NAME = rospy.get_name()
+DEXYCB_PATH = str(rospy.get_param(PKG_NAME + '/dexycb', os.environ.get('DEX_YCB_DIR')))
+MANO_DIR = str(rospy.get_param(PKG_NAME + '/mano', os.environ.get('MANO_MODELS_PATH')))
+DEXYCB_SUBJECT = int(rospy.get_param(PKG_NAME + '/subject'))
+DEXYCB_SEQUENCE = str(rospy.get_param(PKG_NAME + '/sequence', '*'))
+OUTPUT_FILE = str(rospy.get_param(PKG_NAME + '/output', f'dexycb-{DEXYCB_SUBJECT}.csv'))
+rospy.loginfo('waiting for graspit_interface'); rospy.wait_for_service('/graspit/computeQuality')
 
-# TODO
-DEXYCB_SUBJECT = 1
-DEXYCB_SEQUENCE = '20200709_141754'
+# services used
+clear_world = rospy.ServiceProxy('/graspit/clearWorld', ClearWorld)
+import_robot = rospy.ServiceProxy('/graspit/importRobot', ImportRobot)
+import_object = rospy.ServiceProxy('/graspit/importGraspableBody', ImportGraspableBody)
+set_robot_dof = rospy.ServiceProxy('/graspit/forceRobotDof', ForceRobotDOF)
+set_object_pose = rospy.ServiceProxy('/graspit/setGraspableBodyPose', SetGraspableBodyPose)
+set_robot_pose = rospy.ServiceProxy('/graspit/setRobotPose', SetRobotPose)
+compute_quality = rospy.ServiceProxy('/graspit/computeQuality', ComputeQuality)
+save_world = rospy.ServiceProxy('/graspit/saveWorld', SaveWorld)
 
-rospy.init_node('scene_reconstructor')
+rospy.ServiceProxy('/graspit/setCheckCollision', SetCheckCollision)(False) # disable collision checks
 
 mano_layer = ManoLayer(mano_root=MANO_DIR, use_pca=True, ncomps=45, side='right', flat_hand_mean=False)
 
@@ -81,147 +95,161 @@ def xyz_to_array(s):
     return np.array([float(x) for x in s.split()])
 model_finger_vectors = np.array([xyz_to_array(read_joint(f'palm_{finger}{URDF_JOINTS[finger][0][1]}').find('./origin').attrib['xyz']) for finger in URDF_JOINTS]) # reference vectors to align to later on
 
-# read sequence metadata (per sequence)
-SEQUENCE_DIR = f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJECT]}/{DEXYCB_SEQUENCE}'
-with open(f'{SEQUENCE_DIR}/meta.yml', 'r') as f:
-    seq_meta = yaml.safe_load(f)
-    seq_grasp_idx = seq_meta['ycb_grasp_ind']; seq_grasp_obj = seq_meta['ycb_ids'][seq_grasp_idx] # grasped object index and DexYCB ID
-    seq_frames = seq_meta['num_frames']
+# write starting lines of output CSV file
+with open(OUTPUT_FILE, 'w') as f:
+    f.write('seq,frame,volume,epsilon,time\n')
 
-# read sequence's pose data
-seq_pose = np.load(f'{SEQUENCE_DIR}/pose.npz')
-seq_hand_thetas = seq_pose['pose_m'][:,0,:48]; seq_hand_trans = seq_pose['pose_m'][:,0,48:]
-seq_obj_trans = seq_pose['pose_y'][:,seq_grasp_idx,-3:]
-seq_obj_orient = seq_pose['pose_y'][:,seq_grasp_idx,:-3]
-if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions before proceeding
-    seq_obj_orient = Rotation.from_rotvec(seq_obj_orient).as_quat()
+for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJECT]}/{DEXYCB_SEQUENCE}/'):
+    with open(f'{SEQUENCE_DIR}/meta.yml', 'r') as f:
+        seq_meta = yaml.safe_load(f)
+        seq_grasp_idx = seq_meta['ycb_grasp_ind']; seq_grasp_obj = seq_meta['ycb_ids'][seq_grasp_idx] # grasped object index and DexYCB ID
+        seq_frames = seq_meta['num_frames']
+        
+    seq_name = os.path.basename(
+        os.path.dirname(SEQUENCE_DIR)
+    )
+    rospy.loginfo(f'processing subject {DEXYCB_SUBJECT} sequence {seq_name} ({seq_frames} frames)')
 
-# generate MANO hands
-seq_hand_betas = torch.tile(mano_betas, (seq_frames, 1)) # we're using the same betas for all frames
-all_verts, all_joints = mano_layer(torch.from_numpy(seq_hand_thetas), seq_hand_betas, torch.from_numpy(seq_hand_trans)) # process all frames in one operation
+    # read sequence's pose data
+    seq_pose = np.load(f'{SEQUENCE_DIR}/pose.npz')
+    seq_hand_thetas = seq_pose['pose_m'][:,0,:48]; seq_hand_trans = seq_pose['pose_m'][:,0,48:]
+    seq_obj_trans = seq_pose['pose_y'][:,seq_grasp_idx,-3:]
+    seq_obj_orient = seq_pose['pose_y'][:,seq_grasp_idx,:-3]
+    if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions before proceeding
+        seq_obj_orient = Rotation.from_rotvec(seq_obj_orient).as_quat()
 
-all_joints = all_joints.detach().cpu().numpy() / 1000 # convert to numpy (and also convert to metres)
+    # generate MANO hands
+    seq_hand_betas = torch.tile(mano_betas, (seq_frames, 1)) # we're using the same betas for all frames
+    all_verts, all_joints = mano_layer(torch.from_numpy(seq_hand_thetas), seq_hand_betas, torch.from_numpy(seq_hand_trans)) # process all frames in one operation
 
-# calculate angle from a to b, given the rotational axis
-def calc_rot_angle(a, b, rot):
-    # project a and b onto plane with rot as normal
-    a -= a.dot(rot) * rot
-    b -= b.dot(rot) * rot
+    all_joints = all_joints.detach().cpu().numpy() / 1000 # convert to numpy (and also convert to metres)
 
-    # calculate rotation angle
-    ang = np.arccos(a.dot(b) / np.sqrt(a.dot(a) * b.dot(b)))
-    if np.cross(a, b).dot(rot) < 0: ang *= -1 # consider rotation direction
+    # calculate angle from a to b, given the rotational axis
+    def calc_rot_angle(a, b, rot):
+        # project a and b onto plane with rot as normal
+        a -= a.dot(rot) * rot
+        b -= b.dot(rot) * rot
 
-    return ang
+        # calculate rotation angle
+        ang = np.arccos(a.dot(b) / np.sqrt(a.dot(a) * b.dot(b)))
+        if np.cross(a, b).dot(rot) < 0: ang *= -1 # consider rotation direction
 
-# generate joint name (in our URDF description's naming convention)
-def joint_name(finger, tup):
-    a = tup[0]; b = tup[1]
-    a = 'palm' if a is None else f'{finger}{a}'
-    b = f'{finger}{b}'
-    return f'{a}_{b}'
+        return ang
 
-# https://stackoverflow.com/a/59204638
-def rotation_matrix_from_vectors(vec1, vec2):
-    """ Find the rotation matrix that aligns vec1 to vec2
-    :param vec1: A 3d "source" vector
-    :param vec2: A 3d "destination" vector
-    :return mat: A transform matrix (3x3) which when applied to vec1, aligns it with vec2.
-    """
-    a, b = (vec1 / np.linalg.norm(vec1)).reshape(3), (vec2 / np.linalg.norm(vec2)).reshape(3)
-    v = np.cross(a, b)
-    c = np.dot(a, b)
-    s = np.linalg.norm(v)
-    
-    kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    if np.all(np.isclose(kmat, np.zeros((3, 3)))): return np.eye(3)
+    # generate joint name (in our URDF description's naming convention)
+    def joint_name(finger, tup):
+        a = tup[0]; b = tup[1]
+        a = 'palm' if a is None else f'{finger}{a}'
+        b = f'{finger}{b}'
+        return f'{a}_{b}'
 
-    rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
-    return rotation_matrix
+    # https://stackoverflow.com/a/59204638
+    def rotation_matrix_from_vectors(vec1, vec2):
+        """ Find the rotation matrix that aligns vec1 to vec2
+        :param vec1: A 3d "source" vector
+        :param vec2: A 3d "destination" vector
+        :return mat: A transform matrix (3x3) which when applied to vec1, aligns it with vec2.
+        """
+        a, b = (vec1 / np.linalg.norm(vec1)).reshape(3), (vec2 / np.linalg.norm(vec2)).reshape(3)
+        v = np.cross(a, b)
+        c = np.dot(a, b)
+        s = np.linalg.norm(v)
+        
+        kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        if np.all(np.isclose(kmat, np.zeros((3, 3)))): return np.eye(3)
 
-rospy.ServiceProxy('/graspit/setCheckCollision', SetCheckCollision)(False)
+        rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
+        return rotation_matrix
 
-clear_world = rospy.ServiceProxy('/graspit/clearWorld', ClearWorld)
-import_robot = rospy.ServiceProxy('/graspit/importRobot', ImportRobot)
-import_object = rospy.ServiceProxy('/graspit/importGraspableBody', ImportGraspableBody)
+    def ros_point(trans):
+        if trans is np.ndarray: trans = trans.tolist()
+        return Point(trans[0], trans[1], trans[2])
+    def ros_quaternion(quat):
+        if quat is np.ndarray: quat = quat.tolist()
+        return Quaternion(quat[0], quat[1], quat[2], quat[3])
+    def ros_pose(trans, rot):
+        return Pose(ros_point(trans), ros_quaternion(rot))
 
-def ros_point(trans):
-    if trans is np.ndarray: trans = trans.tolist()
-    return Point(trans[0], trans[1], trans[2])
-def ros_quaternion(quat):
-    if quat is np.ndarray: quat = quat.tolist()
-    return Quaternion(quat[0], quat[1], quat[2], quat[3])
-def ros_pose(trans, rot):
-    return Pose(ros_point(trans), ros_quaternion(rot))
+    # command GraspIt to reset world
+    clear_world()
+    import_robot(DEXYCB_MODEL, Pose(ros_point(seq_hand_trans[0]), Quaternion(0, 0, 0, 1)))
+    import_object(f'dexycb_{seq_grasp_obj}', ros_pose(seq_obj_trans[0], seq_obj_orient[0]))
 
-# command GraspIt to reset world
-clear_world()
-import_robot(DEXYCB_MODEL, Pose(ros_point(seq_hand_trans[0]), Quaternion(0, 0, 0, 1)))
-import_object(f'dexycb_{seq_grasp_obj}', ros_pose(seq_obj_trans[0], seq_obj_orient[0]))
+    results = []
 
-set_robot_dof = rospy.ServiceProxy('/graspit/forceRobotDof', ForceRobotDOF)
-set_object_pose = rospy.ServiceProxy('/graspit/setGraspableBodyPose', SetGraspableBodyPose)
-set_robot_pose = rospy.ServiceProxy('/graspit/setRobotPose', SetRobotPose)
-compute_quality = rospy.ServiceProxy('/graspit/computeQuality', ComputeQuality)
-for nframe in range(seq_frames): # process each frame
-    rospy.loginfo(f'processing frame {nframe}')
-    hand_dofs = [0] * 4 * 5
+    for nframe in range(seq_frames): # process each frame
+        t_start = timer()
+        
+        rospy.loginfo(f'processing frame {nframe}')
+        hand_dofs = [0] * 4 * 5
 
-    # rotate to align with reference
-    joints = all_joints[nframe]
-    wrist_pos = np.copy(joints[0]) # remember to copy!
-    joints -= wrist_pos # centre about wrist
-    finger_vectors = joints[[URDF_JOINTS[finger][0][2][0] for finger in URDF_JOINTS]]
-    hand_rot, rssd = Rotation.align_vectors(model_finger_vectors, finger_vectors)
-    rot_matrix = hand_rot.as_matrix()
-    joints = rot_matrix.dot(joints.T).T
+        # rotate to align with reference
+        joints = all_joints[nframe]
+        wrist_pos = np.copy(joints[0]) # remember to copy!
+        joints -= wrist_pos # centre about wrist
+        finger_vectors = joints[[URDF_JOINTS[finger][0][2][0] for finger in URDF_JOINTS]]
+        hand_rot, rssd = Rotation.align_vectors(model_finger_vectors, finger_vectors)
+        rot_matrix = hand_rot.as_matrix()
+        joints = rot_matrix.dot(joints.T).T
 
-    for finger in URDF_JOINTS:
-        frame = np.eye(3) # rotation only
-        # print(f'Processing finger {finger} (index {n}).')
-        for i in range(len(URDF_JOINTS[finger]) - 1):
-            joint = URDF_JOINTS[finger][i]
-            joint_elem = read_joint(joint_name(finger, joint))
+        for finger in URDF_JOINTS:
+            frame = np.eye(3) # rotation only
+            # print(f'Processing finger {finger} (index {n}).')
+            for i in range(len(URDF_JOINTS[finger]) - 1):
+                joint = URDF_JOINTS[finger][i]
+                joint_elem = read_joint(joint_name(finger, joint))
 
-            ref_vect = None
-            for j in range(i + 1, len(URDF_JOINTS[finger])):
-                joint_end = read_joint(joint_name(finger, URDF_JOINTS[finger][j])).find('./origin')
-                if joint_end is None: continue
-                ref_vect = xyz_to_array(joint_end.attrib['xyz'])
-                break
-            if ref_vect is None:
-                raise RuntimeError('cannot form ref_vect')
+                ref_vect = None
+                for j in range(i + 1, len(URDF_JOINTS[finger])):
+                    joint_end = read_joint(joint_name(finger, URDF_JOINTS[finger][j])).find('./origin')
+                    if joint_end is None: continue
+                    ref_vect = xyz_to_array(joint_end.attrib['xyz'])
+                    break
+                if ref_vect is None:
+                    raise RuntimeError('cannot form ref_vect')
+                    
+                rot_axis = xyz_to_array(joint_elem.find('./axis').attrib['xyz']) # rotational axis
+
+                # calculate rotation angle (in joint frame)
+                vect = np.linalg.inv(frame).dot(joints[joint[2][1]] - joints[joint[2][0]])
+                ref_vect /= np.sqrt(ref_vect.dot(ref_vect)); vect /= np.sqrt(vect.dot(vect))
+                ang = calc_rot_angle(ref_vect, vect, rot_axis)
+
+                # print(f' - Joint {i} ({joint[0]} -> {joint[1]}): {np.degrees(ang)} deg')
+
+                # transform joint frame to next one
+                rot_align = rotation_matrix_from_vectors(np.array([0, 0, 1]), rot_axis) # bring rotation axis to Z axis
+                frame_rot = rot_align.dot(Rotation.from_euler('z', ang).as_matrix()).dot(np.linalg.inv(rot_align)) # rotation matrix to align current frame to next frame
                 
-            rot_axis = xyz_to_array(joint_elem.find('./axis').attrib['xyz']) # rotational axis
+                frame = frame.dot(frame_rot)
+                # frame = frame.dot(frame).dot(make_4x4trans(frame_rot, frame_trans)).dot(np.linalg.inv(frame))
 
-            # calculate rotation angle (in joint frame)
-            vect = np.linalg.inv(frame).dot(joints[joint[2][1]] - joints[joint[2][0]])
-            ref_vect /= np.sqrt(ref_vect.dot(ref_vect)); vect /= np.sqrt(vect.dot(vect))
-            ang = calc_rot_angle(ref_vect, vect, rot_axis)
+                hand_dofs[graspit_dof_bases[finger] + i] = ang.item()
 
-            # print(f' - Joint {i} ({joint[0]} -> {joint[1]}): {np.degrees(ang)} deg')
+        hand_trans = wrist_pos.tolist()
+        hand_orient = hand_rot.inv().as_quat().tolist()
 
-            # transform joint frame to next one
-            rot_align = rotation_matrix_from_vectors(np.array([0, 0, 1]), rot_axis) # bring rotation axis to Z axis
-            frame_rot = rot_align.dot(Rotation.from_euler('z', ang).as_matrix()).dot(np.linalg.inv(rot_align)) # rotation matrix to align current frame to next frame
-            
-            frame = frame.dot(frame_rot)
-            # frame = frame.dot(frame).dot(make_4x4trans(frame_rot, frame_trans)).dot(np.linalg.inv(frame))
+        obj_trans = seq_obj_trans[nframe].tolist()
+        obj_orient = seq_obj_orient[nframe].tolist()
 
-            hand_dofs[graspit_dof_bases[finger] + i] = ang.item()
+        set_robot_dof(0, hand_dofs); set_robot_pose(0, ros_pose(hand_trans, hand_orient))
+        set_object_pose(0, ros_pose(obj_trans, obj_orient))
+        # rospy.loginfo(f'set dof ret={ret}')
 
-    hand_trans = wrist_pos.tolist()
-    hand_orient = hand_rot.inv().as_quat().tolist()
+        quality_resp = compute_quality(0)
+        result = quality_resp.result
+        volume = quality_resp.volume; epsilon = quality_resp.epsilon
+        # rospy.loginfo(f'ret={result} v={volume} e={epsilon}')
 
-    obj_trans = seq_obj_trans[nframe].tolist()
-    obj_orient = seq_obj_orient[nframe].tolist()
+        t_end = timer()
 
-    set_robot_dof(0, hand_dofs); set_robot_pose(0, ros_pose(hand_trans, hand_orient))
-    set_object_pose(0, ros_pose(obj_trans, obj_orient))
-    # rospy.loginfo(f'set dof ret={ret}')
+        results.append(f'{seq_name},{nframe},{volume},{epsilon},{t_end - t_start}\n')
 
-    quality_resp = compute_quality(0)
-    result = quality_resp.result
-    volume = quality_resp.volume; epsilon = quality_resp.epsilon
-    rospy.loginfo(f'ret={result} v={volume} e={epsilon}')
+    if volume == 0.0 or epsilon == -1.0:
+        world_name = f'{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJECT]}_{seq_name}'
+        rospy.logwarn(f'potentially invalid result - saving world {world_name}')
+        save_world(world_name)
+
+    with open(OUTPUT_FILE, 'a') as f:
+        f.writelines(results)
     

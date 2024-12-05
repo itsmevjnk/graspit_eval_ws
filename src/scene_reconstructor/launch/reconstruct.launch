@@ -1,0 +1,18 @@
+<launch>
+    <arg name="subject"/>
+    <arg name="sequence" default="*"/>
+    <arg name="dexycb" default="$(env DEX_YCB_DIR)"/>
+    <arg name="mano" default="$(env MANO_MODELS_PATH)"/>
+    <arg name="output" default="$(env HOME)/dexycb-$(arg subject).csv"/>
+    <arg name="launch_graspit" default="true"/>
+
+    <node name="graspit_interface" pkg="graspit_interface" type="launch_graspit.sh" output="screen" required="true" if="$(arg launch_graspit)"/>
+    
+    <node name="reconstruct" pkg="scene_reconstructor" type="reconstruct.py" output="screen" required="true">
+        <param name="subject" value="$(arg subject)"/>
+        <param name="sequence" value="$(arg sequence)"/>
+        <param name="dexycb" value="$(arg dexycb)"/>
+        <param name="mano" value="$(arg mano)"/>
+        <param name="output" value="$(arg output)"/>
+    </node>
+</launch>
