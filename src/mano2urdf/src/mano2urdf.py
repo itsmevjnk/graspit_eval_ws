@@ -150,4 +150,16 @@ for (nsub, sub) in enumerate(subjects):
             with open(MODEL_DIR + '/' + fn, 'w') as f:
                 f.write(templates[fn].replace('{SUBJECT}', sub))
 
-    # write miscellaneous files
+# print instructions
+print('-' * 70)
+print('WHAT\'S NEXT: Follow the steps below on a ROS Melodic installation')
+print('with urdf2graspit to convert the generated URDF descriptions to those')
+print('used by GraspIt:')
+print('  1. Copy the mano_* directories in src/ to the installation\'s')
+print('     ROS workspace\'s src/ directory.')
+print('  2. Set up the workspace, and run roscore in a separate terminal.')
+print('  3. Run the following commands:')
+for sub in subjects:
+    print(f'rosrun urdf2graspit urdf2graspit_node `rospack find {sub}`/{sub}.urdf $GRASPIT palm palm_index0a palm_mid0a palm_pinky0a palm_ring0a palm_thumb0f')
+print('  4. Copy the resulting mano_* directories in $GRASPIT/models/robots')
+print('     back to your installation.')
