@@ -98,9 +98,9 @@ if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions bef
 
 # generate MANO hands
 seq_hand_betas = torch.tile(mano_betas, (seq_frames, 1)) # we're using the same betas for all frames
-all_verts, all_joints = mano_layer(torch.from_numpy(seq_hand_thetas), seq_hand_betas) # process all frames in one operation
+all_verts, all_joints = mano_layer(torch.from_numpy(seq_hand_thetas), seq_hand_betas, torch.from_numpy(seq_hand_trans)) # process all frames in one operation
 
-all_joints = all_joints.detach().cpu().numpy() # convert to numpy
+all_joints = all_joints.detach().cpu().numpy() / 1000 # convert to numpy (and also convert to metres)
 
 # calculate angle from a to b, given the rotational axis
 def calc_rot_angle(a, b, rot):
@@ -157,15 +157,18 @@ clear_world()
 import_robot(DEXYCB_MODEL, Pose(ros_point(seq_hand_trans[0]), Quaternion(0, 0, 0, 1)))
 import_object(f'dexycb_{seq_grasp_obj}', ros_pose(seq_obj_trans[0], seq_obj_orient[0]))
 
-force_robot_dof = rospy.ServiceProxy('/graspit/forceRobotDof', ForceRobotDOF)
+set_robot_dof = rospy.ServiceProxy('/graspit/forceRobotDof', ForceRobotDOF)
 set_object_pose = rospy.ServiceProxy('/graspit/setGraspableBodyPose', SetGraspableBodyPose)
 set_robot_pose = rospy.ServiceProxy('/graspit/setRobotPose', SetRobotPose)
+compute_quality = rospy.ServiceProxy('/graspit/computeQuality', ComputeQuality)
 for nframe in range(seq_frames): # process each frame
     rospy.loginfo(f'processing frame {nframe}')
     hand_dofs = [0] * 4 * 5
 
     # rotate to align with reference
-    joints = all_joints[nframe]; wrist_pos = joints[0]; joints -= wrist_pos # centre about wrist
+    joints = all_joints[nframe]
+    wrist_pos = np.copy(joints[0]) # remember to copy!
+    joints -= wrist_pos # centre about wrist
     finger_vectors = joints[[URDF_JOINTS[finger][0][2][0] for finger in URDF_JOINTS]]
     hand_rot, rssd = Rotation.align_vectors(model_finger_vectors, finger_vectors)
     rot_matrix = hand_rot.as_matrix()
@@ -205,12 +208,18 @@ for nframe in range(seq_frames): # process each frame
 
             hand_dofs[graspit_dof_bases[finger] + i] = ang.item()
 
-    hand_trans = seq_hand_trans[nframe].tolist()
+    hand_trans = wrist_pos.tolist()
     hand_orient = hand_rot.inv().as_quat().tolist()
 
     obj_trans = seq_obj_trans[nframe].tolist()
     obj_orient = seq_obj_orient[nframe].tolist()
 
-    force_robot_dof(0, hand_dofs); set_robot_pose(0, ros_pose(hand_trans, hand_orient))
+    set_robot_dof(0, hand_dofs); set_robot_pose(0, ros_pose(hand_trans, hand_orient))
     set_object_pose(0, ros_pose(obj_trans, obj_orient))
+    # rospy.loginfo(f'set dof ret={ret}')
+
+    quality_resp = compute_quality(0)
+    result = quality_resp.result
+    volume = quality_resp.volume; epsilon = quality_resp.epsilon
+    rospy.loginfo(f'ret={result} v={volume} e={epsilon}')
     
