@@ -103,23 +103,28 @@ for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJEC
     with open(f'{SEQUENCE_DIR}/meta.yml', 'r') as f:
         seq_meta = yaml.safe_load(f)
         seq_grasp_idx = seq_meta['ycb_grasp_ind']; seq_grasp_obj = seq_meta['ycb_ids'][seq_grasp_idx] # grasped object index and DexYCB ID
-        seq_frames = seq_meta['num_frames']
+        seq_frames_cnt = seq_meta['num_frames']
         
     seq_name = os.path.basename(
         os.path.dirname(SEQUENCE_DIR)
     )
-    rospy.loginfo(f'processing subject {DEXYCB_SUBJECT} sequence {seq_name} ({seq_frames} frames)')
+    rospy.loginfo(f'processing subject {DEXYCB_SUBJECT} sequence {seq_name} ({seq_frames_cnt} frames)')
 
     # read sequence's pose data
     seq_pose = np.load(f'{SEQUENCE_DIR}/pose.npz')
-    seq_hand_thetas = seq_pose['pose_m'][:,0,:48]; seq_hand_trans = seq_pose['pose_m'][:,0,48:]
+    seq_frames = []
+    for i in range(seq_frames_cnt):
+        if not seq_pose['pose_m'][i].any():
+            rospy.logwarn(f'frame {i} has invalid hand pose - skipping')
+        else: seq_frames.append(i)
+    seq_hand_thetas = seq_pose['pose_m'][seq_frames,0,:48]; seq_hand_trans = seq_pose['pose_m'][seq_frames,0,48:]
     seq_obj_trans = seq_pose['pose_y'][:,seq_grasp_idx,-3:]
     seq_obj_orient = seq_pose['pose_y'][:,seq_grasp_idx,:-3]
     if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions before proceeding
         seq_obj_orient = Rotation.from_rotvec(seq_obj_orient).as_quat()
 
     # generate MANO hands
-    seq_hand_betas = torch.tile(mano_betas, (seq_frames, 1)) # we're using the same betas for all frames
+    seq_hand_betas = torch.tile(mano_betas, (len(seq_frames), 1)) # we're using the same betas for all frames
     all_verts, all_joints = mano_layer(torch.from_numpy(seq_hand_thetas), seq_hand_betas, torch.from_numpy(seq_hand_trans)) # process all frames in one operation
 
     all_joints = all_joints.detach().cpu().numpy() / 1000 # convert to numpy (and also convert to metres)
@@ -177,10 +182,10 @@ for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJEC
 
     results = []
 
-    for nframe in range(seq_frames): # process each frame
+    for nframe, frame_num in enumerate(seq_frames): # process each frame
         t_start = timer()
         
-        rospy.loginfo(f'processing frame {nframe}')
+        rospy.loginfo(f'processing frame {frame_num}')
         hand_dofs = [0] * 4 * 5
 
         # rotate to align with reference
@@ -243,7 +248,7 @@ for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJEC
 
         t_end = timer()
 
-        results.append(f'{seq_name},{nframe},{volume},{epsilon},{t_end - t_start}\n')
+        results.append(f'{seq_name},{frame_num},{volume},{epsilon},{t_end - t_start}\n')
 
     if volume == 0.0 or epsilon == -1.0:
         world_name = f'{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJECT]}_{seq_name}'
