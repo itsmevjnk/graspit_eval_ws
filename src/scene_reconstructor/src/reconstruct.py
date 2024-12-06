@@ -138,8 +138,8 @@ for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJEC
                 rospy.logwarn(f'frame {i} has invalid hand pose - skipping')
             else: seq_frames.append(i)
         seq_hand_thetas = seq_pose['pose_m'][seq_frames,0,:48]; seq_hand_trans = seq_pose['pose_m'][seq_frames,0,48:]
-        seq_obj_trans = seq_pose['pose_y'][:,seq_grasp_idx,-3:]
-        seq_obj_orient = seq_pose['pose_y'][:,seq_grasp_idx,:-3]
+        seq_obj_trans = seq_pose['pose_y'][seq_frames,seq_grasp_idx,-3:]
+        seq_obj_orient = seq_pose['pose_y'][seq_frames,seq_grasp_idx,:-3]
         if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions before proceeding
             seq_obj_orient = Rotation.from_rotvec(seq_obj_orient).as_quat()
 
@@ -257,7 +257,11 @@ for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJEC
         obj_trans = seq_obj_trans[nframe].tolist()
         obj_orient = seq_obj_orient[nframe].tolist()
 
-        set_robot_dof(0, hand_dofs); set_robot_pose(0, ros_pose(hand_trans, hand_orient))
+        # clear_world()
+        # import_robot(DEXYCB_MODEL, ros_pose(hand_trans, hand_orient))
+        # import_object(f'dexycb_{seq_grasp_obj}', ros_pose(obj_trans, obj_orient))
+        set_robot_dof(0, hand_dofs)
+        set_robot_pose(0, ros_pose(hand_trans, hand_orient))
         set_object_pose(0, ros_pose(obj_trans, obj_orient))
         # rospy.loginfo(f'set dof ret={ret}')
 
