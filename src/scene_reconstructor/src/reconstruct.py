@@ -63,6 +63,7 @@ MANO_DIR = str(rospy.get_param(PKG_NAME + '/mano', os.environ.get('MANO_MODELS_P
 DEXYCB_SUBJECT = int(rospy.get_param(PKG_NAME + '/subject'))
 DEXYCB_SEQUENCE = str(rospy.get_param(PKG_NAME + '/sequence', '*'))
 OUTPUT_FILE = str(rospy.get_param(PKG_NAME + '/output', f'dexycb-{DEXYCB_SUBJECT}.csv'))
+DEXYCB_CAMERA = str(rospy.get_param(PKG_NAME + '/camera', '')); DEXYCB_CAMERA_SPECIFIED = len(DEXYCB_CAMERA) > 0
 rospy.loginfo('waiting for graspit_interface'); rospy.wait_for_service('/graspit/computeQuality')
 
 # services used
@@ -111,17 +112,36 @@ for SEQUENCE_DIR in glob.glob(f'{DEXYCB_PATH}/{DEXYCB_SUBJECT_DIRS[DEXYCB_SUBJEC
     rospy.loginfo(f'processing subject {DEXYCB_SUBJECT} sequence {seq_name} ({seq_frames_cnt} frames)')
 
     # read sequence's pose data
-    seq_pose = np.load(f'{SEQUENCE_DIR}/pose.npz')
-    seq_frames = []
-    for i in range(seq_frames_cnt):
-        if not seq_pose['pose_m'][i].any():
-            rospy.logwarn(f'frame {i} has invalid hand pose - skipping')
-        else: seq_frames.append(i)
-    seq_hand_thetas = seq_pose['pose_m'][seq_frames,0,:48]; seq_hand_trans = seq_pose['pose_m'][seq_frames,0,48:]
-    seq_obj_trans = seq_pose['pose_y'][:,seq_grasp_idx,-3:]
-    seq_obj_orient = seq_pose['pose_y'][:,seq_grasp_idx,:-3]
-    if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions before proceeding
-        seq_obj_orient = Rotation.from_rotvec(seq_obj_orient).as_quat()
+    if DEXYCB_CAMERA_SPECIFIED: # camera specified
+        seq_frames = []
+        seq_hand_thetas = []; seq_hand_trans = []
+        seq_obj_orient = []; seq_obj_trans = []
+        for i in range(seq_frames_cnt):
+            labels = np.load(f'{SEQUENCE_DIR}/932122062010/labels_{i:06d}.npz')
+            if not labels['pose_m'].any():
+                rospy.logwarn(f'frame {i} has invalid hand pose - skipping')
+                continue
+            seq_hand_thetas.append(labels['pose_m'][0,:48])
+            seq_hand_trans.append(labels['pose_m'][0,48:])
+            seq_obj_orient.append(labels['pose_y'][seq_grasp_idx,:,:3])
+            seq_obj_trans.append(labels['pose_y'][seq_grasp_idx,:,3].reshape(-1))
+            seq_frames.append(i)
+        seq_obj_orient = Rotation.from_matrix(np.array(seq_obj_orient, dtype=np.float32)).as_quat()
+        seq_obj_trans = np.array(seq_obj_trans, dtype=np.float32)
+        seq_hand_thetas = np.array(seq_hand_thetas, dtype=np.float32)
+        seq_hand_trans = np.array(seq_hand_trans, dtype=np.float32)    
+    else: # camera not specified - use global view
+        seq_pose = np.load(f'{SEQUENCE_DIR}/pose.npz')
+        seq_frames = []
+        for i in range(seq_frames_cnt):
+            if not seq_pose['pose_m'][i].any():
+                rospy.logwarn(f'frame {i} has invalid hand pose - skipping')
+            else: seq_frames.append(i)
+        seq_hand_thetas = seq_pose['pose_m'][seq_frames,0,:48]; seq_hand_trans = seq_pose['pose_m'][seq_frames,0,48:]
+        seq_obj_trans = seq_pose['pose_y'][:,seq_grasp_idx,-3:]
+        seq_obj_orient = seq_pose['pose_y'][:,seq_grasp_idx,:-3]
+        if seq_obj_orient.shape[-1] == 3: # rotation vector - convert to quaternions before proceeding
+            seq_obj_orient = Rotation.from_rotvec(seq_obj_orient).as_quat()
 
     # generate MANO hands
     seq_hand_betas = torch.tile(mano_betas, (len(seq_frames), 1)) # we're using the same betas for all frames

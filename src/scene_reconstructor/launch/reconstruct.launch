@@ -5,6 +5,7 @@
     <arg name="mano" default="$(env MANO_MODELS_PATH)"/>
     <arg name="output" default="$(env HOME)/dexycb-$(arg subject).csv"/>
     <arg name="launch_graspit" default="true"/>
+    <arg name="camera" default=""/>
 
     <node name="graspit_interface" pkg="graspit_interface" type="launch_graspit.sh" output="screen" required="true" if="$(arg launch_graspit)"/>
     
@@ -14,5 +15,6 @@
         <param name="dexycb" value="$(arg dexycb)"/>
         <param name="mano" value="$(arg mano)"/>
         <param name="output" value="$(arg output)"/>
+        <param name="camera" value="$(arg camera)"/>
     </node>
 </launch>
