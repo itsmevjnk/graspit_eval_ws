@@ -1,0 +1,16 @@
+<launch>
+    <arg name="name" default="camera" />
+    <arg name="device" default="/dev/video0" />
+    <arg name="size" default="8x6" />
+    <arg name="square" default="0.025" />
+
+    <include file="$(find camera_support)/launch/bringup.launch">
+        <arg name="name" value="$(arg name)" />
+        <arg name="device" value="$(arg device)" />
+    </include>
+
+    <node name="$(arg name)_calib" pkg="camera_calibration" type="cameracalibrator.py" output="screen" args="--size $(arg size) --square $(arg square)">
+        <param name="camera" value="$(arg name)" />
+        <remap from="image" to="/$(arg name)/image_raw" />
+    </node>
+</launch>

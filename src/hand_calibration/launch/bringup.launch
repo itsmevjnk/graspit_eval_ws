@@ -1,0 +1,46 @@
+<launch>
+    <arg name="name" default="camera" />
+    <arg name="device" default="/dev/video0" />
+    <arg name="calibration" default="" />
+
+    <arg name="mano" default="$(env MANO_MODELS_PATH)" />
+    <arg name="output" default="$(find hand_calibration)/../hand_models" />
+
+    <include file="$(find camera_support)/launch/bringup.launch">
+        <arg name="name" value="$(arg name)" />
+        <arg name="device" value="$(arg device)" />
+        <arg name="calibration" value="$(arg calibration)" />
+    </include>
+
+    <node name="$(arg name)_preprocess_ws" pkg="hand_calibration" type="preprocess_workspace.py" output="screen" required="true">
+        <remap from="image" to="/$(arg name)/image_rect" />
+        <remap from="tag_detections" to="/$(arg name)/tag_detections" />
+        <remap from="homography" to="/$(arg name)/homography" />
+        <remap from="image_corr" to="/$(arg name)/image_corr" />
+    </node>
+
+    <include file="$(find hand_landmarker)/launch/bringup.launch">
+        <arg name="image" value="/$(arg name)/image_rect" />
+        <arg name="landmarks" value="/$(arg name)/hand_landmarks" />
+        <arg name="image_lms" value="/$(arg name)/image_lms" />
+    </include>
+
+    <node name="$(arg name)_lm_persp" pkg="hand_calibration" type="lm_perspective.py" output="screen" required="true">
+        <remap from="landmarks" to="/$(arg name)/hand_landmarks" />
+        <remap from="homography" to="/$(arg name)/homography" />
+        <remap from="landmarks_corr" to="/$(arg name)/hand_landmarks_corr" />
+        <remap from="camera_info" to="/$(arg name)/camera_info" />
+    </node>
+
+    <node name="$(arg name)_wilor" pkg="hand_calibration" type="wilor_estimation.py" output="screen" required="true">
+        <remap from="landmarks" to="/$(arg name)/hand_landmarks_corr" />
+        <remap from="image" to="/$(arg name)/image_rect" />
+        <remap from="shape" to="/$(arg name)/hand_shape" />
+    </node>
+
+    <node name="$(arg name)_mano2urdf" pkg="mano2urdf" type="mano2urdf_node.py" output="screen" required="true">
+        <remap from="shape" to="/$(arg name)/hand_shape" />
+        <param name="mano" value="$(arg mano)" />
+        <param name="output" value="$(arg output)" />
+    </node>
+</launch>
