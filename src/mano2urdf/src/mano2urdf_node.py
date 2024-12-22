@@ -55,7 +55,7 @@ class Mano2URDF:
         thetas = torch.zeros(1, 45 + 3)
 
         verts, joints = self.mano(thetas, betas) # calculate vertices and joints
-        verts = (verts[0] / 1000).detach().cpu().numpy() # convert back to numpy for processing, and also convert milimetres to metres
+        verts = (data.scale * verts[0] / 1000).detach().cpu().numpy() # convert back to numpy for processing, and also convert milimetres to metres
         joints = (joints[0] / 1000).detach().cpu().numpy()
 
         name = time.strftime('mano_%Y%m%d_%H%M%S')
