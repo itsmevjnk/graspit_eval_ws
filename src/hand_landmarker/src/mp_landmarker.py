@@ -72,7 +72,7 @@ class MsgHeaderHelper:
         if increment_seq: self.seq += 1
         return header
 
-class HandLandmarker:
+class MPHandLandmarker:
     def __init__(self):
         self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(
             mp.tasks.vision.HandLandmarkerOptions(
@@ -140,8 +140,8 @@ class HandLandmarker:
             ]
         ))
 def main():
-    rospy.init_node('hand_landmarker', anonymous=True)
-    node = HandLandmarker()
+    rospy.init_node('mp_landmarker', anonymous=True)
+    node = MPHandLandmarker()
 
     rospy.loginfo('spinning')
     try:

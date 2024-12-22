@@ -1,0 +1,43 @@
+<launch>
+    <arg name="urdf" />
+
+    <arg name="name" default="camera" />
+    <arg name="device" default="/dev/video0" />
+    <arg name="calibration" default="" />
+
+    <arg name="rviz" default="false" />
+    <arg name="wilor" default="false" />
+
+    <arg name="no_landmarker" default="false" /> <!-- in case we want to start the landmarker from a remote (and more powerful) machine -->
+
+    <group unless="$(arg no_landmarker)">
+        <include file="$(find hand_landmarker)/launch/mp_bringup_camera.launch" unless="$(arg wilor)">
+            <arg name="name" value="$(arg name)" />
+            <arg name="device" value="$(arg device)" />
+            <arg name="calibration" value="$(arg calibration)" />
+        </include>
+        <include file="$(find hand_landmarker)/launch/wilor_bringup_camera.launch" if="$(arg wilor)">
+            <arg name="name" value="$(arg name)" />
+            <arg name="device" value="$(arg device)" />
+            <arg name="calibration" value="$(arg calibration)" />
+        </include>
+    </group>
+
+    <node name="$(arg name)_hand_joints" pkg="live_scene_reconstructor" type="hand_joints.py" output="screen">
+        <param name="urdf" value="$(arg urdf)" />
+        <remap from="landmarks" to="/$(arg name)/hand_landmarks" />
+        <remap from="joints" to="/$(arg name)/hand_joints" />
+    </node>
+
+    <group if="$(arg rviz)">
+        <arg name="gui" default="true" />
+        <arg name="rvizconfig" default="$(find urdf_tutorial)/rviz/urdf.rviz" />
+
+        <param name="robot_description" command="$(find xacro)/xacro $(arg urdf)" />
+
+        <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher">
+            <remap from="joint_states" to="/$(arg name)/hand_joints" />
+        </node>
+        <node name="rviz" pkg="rviz" type="rviz" args="-d $(find urdf_tutorial)/rviz/urdf.rviz" />
+    </group>
+</launch>

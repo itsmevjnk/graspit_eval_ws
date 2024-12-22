@@ -1,0 +1,17 @@
+<launch>
+    <arg name="name" default="camera" />
+    <arg name="device" default="/dev/video0" />
+    <arg name="calibration" default="" />
+
+    <include file="$(find camera_support)/launch/bringup.launch">
+        <arg name="name" value="$(arg name)" />
+        <arg name="device" value="$(arg device)" />
+        <arg name="calibration" value="$(arg calibration)" />
+    </include>
+
+    <include file="$(find hand_landmarker)/launch/mp_bringup.launch">
+        <arg name="image" value="/$(arg name)/image_rect" />
+        <arg name="landmarks" value="/$(arg name)/hand_landmarks" />
+        <arg name="image_lms" value="/$(arg name)/image_lms" />
+    </include>
+</launch>

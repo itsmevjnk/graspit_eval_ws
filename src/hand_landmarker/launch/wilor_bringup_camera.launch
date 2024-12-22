@@ -9,7 +9,7 @@
         <arg name="calibration" value="$(arg calibration)" />
     </include>
 
-    <include file="$(find hand_landmarker)/launch/bringup.launch">
+    <include file="$(find hand_landmarker)/launch/wilor_bringup.launch">
         <arg name="image" value="/$(arg name)/image_rect" />
         <arg name="landmarks" value="/$(arg name)/hand_landmarks" />
         <arg name="image_lms" value="/$(arg name)/image_lms" />

@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>hand_landmarker</name>
+  <name>live_scene_reconstructor</name>
   <version>0.0.0</version>
-  <description>The hand_landmarker package</description>
+  <description>The live_scene_reconstructor package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
@@ -19,7 +19,7 @@
   <!-- Url tags are optional, but multiple are allowed, one per tag -->
   <!-- Optional attribute type can be: website, bugtracker, or repository -->
   <!-- Example: -->
-  <!-- <url type="website">http://wiki.ros.org/hand_landmarker</url> -->
+  <!-- <url type="website">http://wiki.ros.org/live_scene_reconstructor</url> -->
 
 
   <!-- Author tags are optional, multiple are allowed, one per tag -->
@@ -49,22 +49,21 @@
   <!-- Use doc_depend for packages you need only for building documentation: -->
   <!--   <doc_depend>doxygen</doc_depend> -->
   <buildtool_depend>catkin</buildtool_depend>
-  
-  <build_depend>message_generation</build_depend>
-
-  <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>python3-mediapipe-pip</exec_depend>
-  <exec_depend>python3-opencv</exec_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_export_depend>rospy</build_export_depend>
+  <build_export_depend>sensor_msgs</build_export_depend>
+  <build_export_depend>std_msgs</build_export_depend>
   <exec_depend>rospy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>hand_landmarker</exec_depend>
   <exec_depend>camera_support</exec_depend>
-
-  <!-- for WiLor visualisation -->
-  <exec_depend>python3-pyrender-pip</exec_depend>
-  <exec_depend>python3-trimesh-pip</exec_depend>
-
+  <exec_depend>urdf_tutorial</exec_depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

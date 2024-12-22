@@ -1,0 +1,11 @@
+<launch>
+    <arg name="image" default="/camera/image_raw" />
+    <arg name="landmarks" default="/camera/hand_landmarks" />
+    <arg name="image_lms" default="/camera/image_lms" />
+
+    <node name="$(anon hand_landmarker)" pkg="hand_landmarker" type="mp_landmarker.py" output="screen" required="true">
+        <remap from="image" to="$(arg image)" />
+        <remap from="landmarks" to="$(arg landmarks)" />
+        <remap from="image_lms" to="$(arg image_lms)" />
+    </node>
+</launch>
