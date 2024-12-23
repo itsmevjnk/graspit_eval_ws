@@ -1,12 +1,16 @@
 <launch>
     <arg name="name" default="camera" />
     <arg name="device" default="/dev/video0" />
-    <arg name="calibration" default="" />
+    <arg name="calibration" default="file://$(find camera_support)/calibration/lifecam_1280x720.yaml" />
+    <arg name="width" default="1280" />
+    <arg name="height" default="720" />
 
     <include file="$(find camera_support)/launch/bringup.launch">
         <arg name="name" value="$(arg name)" />
         <arg name="device" value="$(arg device)" />
         <arg name="calibration" value="$(arg calibration)" />
+        <arg name="width" value="$(arg width)" />
+        <arg name="height" value="$(arg height)" />
     </include>
 
     <include file="$(find hand_landmarker)/launch/wilor_bringup.launch">

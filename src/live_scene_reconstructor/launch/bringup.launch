@@ -3,7 +3,7 @@
 
     <arg name="name" default="camera" />
     <arg name="device" default="/dev/video0" />
-    <arg name="calibration" default="" />
+    <arg name="calibration" default="file://$(find camera_support)/calibration/lifecam_1280x720.yaml" />
 
     <arg name="rviz" default="false" />
     <arg name="wilor" default="false" />

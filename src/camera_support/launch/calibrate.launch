@@ -3,10 +3,14 @@
     <arg name="device" default="/dev/video0" />
     <arg name="size" default="8x6" />
     <arg name="square" default="0.025" />
+    <arg name="width" default="1280" />
+    <arg name="height" default="720" />
 
     <include file="$(find camera_support)/launch/bringup.launch">
         <arg name="name" value="$(arg name)" />
         <arg name="device" value="$(arg device)" />
+        <arg name="width" value="$(arg width)" />
+        <arg name="height" value="$(arg height)" />
     </include>
 
     <node name="$(arg name)_calib" pkg="camera_calibration" type="cameracalibrator.py" output="screen" args="--size $(arg size) --square $(arg square)">
